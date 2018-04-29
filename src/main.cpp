@@ -3,13 +3,11 @@
 
 #include "debugger.h"
 
-using namespace std;
-
 int main(int argc, char* argv[])
 {
     /*
     if (argc < 2) {
-        cout << "Must specify program to debug." << endl;
+        std::cout << "Must specify program to debug." << std::endl;
         return -1;
     }*/
 
@@ -20,7 +18,7 @@ int main(int argc, char* argv[])
     if (pid == 0) {
         Debugger::setupInferior(target);
     } else if (pid >= 1) {
-        Debugger debugger(pid);
+        Debugger debugger {pid};
         debugger.debug();
     }
 

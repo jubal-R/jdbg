@@ -6,7 +6,9 @@ CONFIG -= qt
 LIBS += -L.local/lib -lreadline
 
 SOURCES += main.cpp \
-    debugger.cpp
+    debugger.cpp \
+    breakpoint.cpp
 
 HEADERS += \
-    debugger.h
+    debugger.h \
+    breakpoint.h
