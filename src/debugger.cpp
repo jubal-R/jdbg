@@ -66,13 +66,13 @@ std::string Debugger::getCommand() {
     return command;
 }
 
-bool Debugger::getConfirmation(){
+bool Debugger::getConfirmation() {
     while(1) {
         std::string confirmation;
         std::cout << "Are you sure?(y/n)" << std::endl;
         std::cin >> confirmation;
 
-        if (confirmation == "y"){
+        if (confirmation == "y") {
             return true;
         } else if (confirmation == "n") {
             return false;
@@ -86,13 +86,15 @@ void Debugger::prompt() {
         const std::string input = getCommand();
         const auto tokens = getTokens(input);
 
-        if (tokens.size() > 0){
+        if (tokens.size() > 0) {
             if (tokens[0] == "c") {
                 handleContinue();
                 break;
-            } else if (tokens[0] == "b"){
+            } else if (tokens[0] == "b") {
                 handleBreakpoint(tokens);
-            } else if (tokens[0] == "r"){
+            } else if (tokens[0] == "d") {
+                handleDeleteBreakpoint(tokens);
+            } else if (tokens[0] == "r") {
                 displayRegisters();
             } else if (tokens[0] == "q") {
                 if (getConfirmation()) {
@@ -100,7 +102,7 @@ void Debugger::prompt() {
                     ptrace(PTRACE_KILL, pid, nullptr, nullptr);
                     break;
                 }
-            }else {
+            } else {
                 std::cout << "Invalid Command" << std::endl;
             }
         }
@@ -126,6 +128,19 @@ void Debugger::handleBreakpoint(std::vector<std::string> tokens) {
     }
 }
 
+void Debugger::handleDeleteBreakpoint(std::vector<std::string> tokens) {
+    if (tokens.size() > 1) {
+        if (std::regex_match(tokens[1], std::regex("0[xX][0-9a-fA-F]{1,16}"))) {
+            auto addr = stol(tokens[1], 0, 16);
+            unsetBreakpoint(addr);
+        } else {
+            std::cout << "Invalid address. Example: d 0x402a00" << std::endl;
+        }
+    } else {
+        std::cout << "Specify address. Example: d 0x402a00" << std::endl;
+    }
+}
+
 // Split string into tokens using space as delimeter
 std::vector<std::string> Debugger::getTokens(std::string input) {
     std::istringstream inputStream{input};
@@ -134,10 +149,33 @@ std::vector<std::string> Debugger::getTokens(std::string input) {
 }
 
 void Debugger::setBreakpoint(const std::uintptr_t address) {
-    Breakpoint breakpoint{pid, address};
-    breakpoint.enable();
-    breakpointsMap[address] = breakpoint;
-    std::cout << "Breakpoint set at 0x" << std::hex << address << std::endl;
+    auto search = breakpointsMap.find(address);
+
+    if (search == breakpointsMap.end() || !breakpointsMap[address].isEnabled()) {
+        Breakpoint breakpoint{pid, address};
+        breakpoint.enable();
+        breakpointsMap[address] = breakpoint;
+        std::cout << "Breakpoint set at 0x" << std::hex << address << std::endl;
+    } else {
+        std::cout << "Breakpoint already set at 0x" << std::hex << address << std::endl;
+    }
+}
+
+void Debugger::unsetBreakpoint(const std::uintptr_t address) {
+    auto search = breakpointsMap.find(address);
+
+    if (search != breakpointsMap.end() && breakpointsMap[address].isEnabled()) {
+            breakpointsMap[address].disable();
+            // Fix RIP if on this breakpoint
+            user_regs_struct regs = getRegisters();
+            if (address == regs.rip - 1) {
+                regs.rip--;
+                ptrace(PTRACE_SETREGS, pid, nullptr, &regs);
+            }
+            std::cout << "Removed breakpoint at 0x" << std::hex << address << std::endl;
+    } else {
+        std::cout << "No Breakpoint set at 0x" << std::hex << address << std::endl;
+    }
 }
 
 void Debugger::checkForBreakpoint() {
@@ -145,7 +183,7 @@ void Debugger::checkForBreakpoint() {
     auto addr = regs.rip - 1;
     auto search = breakpointsMap.find(addr);
 
-    if (search != breakpointsMap.end()) {
+    if (search != breakpointsMap.end() && breakpointsMap[addr].isEnabled()) {
         breakpointsMap[addr].disable();
         // Must move RIP back to before breakpoint was hit
         regs.rip--;

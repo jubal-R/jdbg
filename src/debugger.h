@@ -23,10 +23,12 @@ private:
 
     void prompt();
     void setBreakpoint(std::uintptr_t address);
+    void unsetBreakpoint(std::uintptr_t address);
     void checkForBreakpoint();
     void handleContinue();
     void displayRegisters();
     void handleBreakpoint(std::vector<std::string> tokens);
+    void handleDeleteBreakpoint(std::vector<std::string> tokens);
     void padString(std::string &str, char c, unsigned int len);
     bool getConfirmation();
     std::string getCommand();
