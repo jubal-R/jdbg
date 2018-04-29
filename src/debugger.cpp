@@ -66,6 +66,21 @@ std::string Debugger::getCommand() {
     return command;
 }
 
+bool Debugger::getConfirmation(){
+    while(1) {
+        std::string confirmation;
+        std::cout << "Are you sure?(y/n)" << std::endl;
+        std::cin >> confirmation;
+
+        if (confirmation == "y"){
+            return true;
+        } else if (confirmation == "n") {
+            return false;
+        }
+
+    }
+}
+
 void Debugger::prompt() {
     while(1) {
         const std::string input = getCommand();
@@ -77,7 +92,13 @@ void Debugger::prompt() {
                 break;
             } else if (tokens[0] == "b"){
                 handleBreakpoint(tokens);
-            } else {
+            } else if (tokens[0] == "q") {
+                if (getConfirmation()) {
+                    std::cout << "Killing child process..." << std::endl;
+                    ptrace(PTRACE_KILL, pid, nullptr, nullptr);
+                    break;
+                }
+            }else {
                 std::cout << "Invalid Command" << std::endl;
             }
         }

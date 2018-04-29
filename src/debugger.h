@@ -26,6 +26,7 @@ private:
     void checkForBreakpoint();
     void handleContinue();
     void handleBreakpoint(std::vector<std::string> tokens);
+    bool getConfirmation();
     std::string getCommand();
     std::vector<std::string> getTokens(std::string input);
     user_regs_struct getRegisters();
