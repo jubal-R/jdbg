@@ -8,15 +8,15 @@ class Breakpoint
 public:
     Breakpoint() = default;
     Breakpoint(pid_t p, std::uintptr_t addr)
-        : pid(p), address(addr), originalData(), enabled(false){}
+        : pid(p), address(addr), originalByte(), enabled(false){}
     bool isEnabled();
-    uintptr_t getAdress();
+    uintptr_t getAddress();
     void enable();
     void disable();
 private:
     pid_t pid;
     std::uintptr_t address;
-    std::uintptr_t originalData;
+    uint8_t originalByte;
     bool enabled;
 };
 

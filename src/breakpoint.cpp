@@ -1,25 +1,28 @@
 #include "breakpoint.h"
 
 #include <sys/ptrace.h>
-#include <iostream>
 
 bool Breakpoint::isEnabled() {
     return enabled;
 }
 
-uintptr_t Breakpoint::getAdress() {
+uintptr_t Breakpoint::getAddress() {
     return address;
 }
 
 void Breakpoint::enable() {
-    originalData = ptrace(PTRACE_PEEKDATA, pid, address, nullptr);
+    auto word = ptrace(PTRACE_PEEKDATA, pid, address, nullptr);
+    originalByte = static_cast<uint8_t>(word & 0xff);
     // Binary AND with ~0xff clears first byte of word; Binary OR sets first byte to 0xcc after it is zeroed out
-    uint64_t wordWithInt3 = (originalData & ~0xff) | 0xcc;
+    uint64_t wordWithInt3 = (word & ~0xff) | 0xcc;
     ptrace(PTRACE_POKEDATA, pid, address, wordWithInt3);
     enabled = true;
 }
 
 void Breakpoint::disable() {
-    ptrace(PTRACE_POKEDATA, pid, address, originalData);
+    // Only restore single byte as word may contian additional breakpoints
+    auto word = ptrace(PTRACE_PEEKDATA, pid, address, nullptr);
+    uint64_t restoredWord = (word & ~0xff) | originalByte;
+    ptrace(PTRACE_POKEDATA, pid, address, restoredWord);
     enabled = false;
 }
