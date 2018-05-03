@@ -24,8 +24,9 @@ private:
     void prompt();
     void setBreakpoint(std::uintptr_t address);
     void unsetBreakpoint(std::uintptr_t address);
-    void checkForBreakpoint();
+    bool isBreakpoint(u_int64_t address);
     void handleContinue();
+    void decrementInstructionPointer();
     void displayRegisters();
     void handleBreakpoint(std::vector<std::string> tokens);
     void handleDeleteBreakpoint(std::vector<std::string> tokens);

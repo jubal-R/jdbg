@@ -30,13 +30,13 @@ void Debugger::debug() {
         if (WIFSTOPPED(status)) {
             switch (WSTOPSIG(status)) {
                 case SIGTRAP:
-                    std::cout << "Stopped on SIGTRAP" << std::endl;
+                    std::cout << "Stopped on SIGTRAP\n";
                     break;
                 case SIGILL:
-                    std::cout << "Stopped on SIGILL" << std::endl;
+                    std::cout << "Stopped on SIGILL\n";
                     break;
                 case SIGSEGV:
-                    std::cout << "Stopped on SIGSEGV" << std::endl;
+                    std::cout << "Stopped on SIGSEGV\n";
                     break;
                 default:
                     break;
@@ -44,10 +44,10 @@ void Debugger::debug() {
 
             prompt();
         } else if (WIFEXITED(status)) {
-            std::cout << "Target terminated - exiting" << std::endl;
+            std::cout << "Target terminated - exiting\n";
             exit(0);
         } else if (WIFSIGNALED(status)) {
-            std::cout << "Process terminated by signal" << std::endl;
+            std::cout << "Process terminated by signal\n";
             exit(0);
         }
     }
@@ -56,6 +56,7 @@ void Debugger::debug() {
 std::string Debugger::getCommand() {
     char* line = nullptr;
     line = readline("jdbg> ");
+
     if (strlen(line) > 0) {
         add_history(line);
     }
@@ -69,7 +70,7 @@ std::string Debugger::getCommand() {
 bool Debugger::getConfirmation() {
     while(1) {
         std::string confirmation;
-        std::cout << "Are you sure?(y/n)" << std::endl;
+        std::cout << "Are you sure?(y/n)\n";
         std::cin >> confirmation;
 
         if (confirmation == "y") {
@@ -77,7 +78,6 @@ bool Debugger::getConfirmation() {
         } else if (confirmation == "n") {
             return false;
         }
-
     }
 }
 
@@ -98,20 +98,30 @@ void Debugger::prompt() {
                 displayRegisters();
             } else if (tokens[0] == "q") {
                 if (getConfirmation()) {
-                    std::cout << "Killing child process..." << std::endl;
+                    std::cout << "Killing child process...\n";
                     ptrace(PTRACE_KILL, pid, nullptr, nullptr);
                     break;
                 }
             } else {
-                std::cout << "Invalid Command" << std::endl;
+                std::cout << "Invalid Command\n";
             }
         }
     }
 }
 
 void Debugger::handleContinue() {
-    std::cout << "Continuing..." << std::endl;
-    checkForBreakpoint();
+    auto instructionPtr = getRegisters().rip - 1;
+
+    if (isBreakpoint(instructionPtr)) {
+        breakpointsMap[instructionPtr].disable();
+        decrementInstructionPointer();
+        // Single step so breakpoint can be re-enabled before continuing
+        ptrace(PTRACE_SINGLESTEP, pid, nullptr, nullptr);
+        int status;
+        waitpid(pid, &status, 0);
+        breakpointsMap[instructionPtr].enable();
+    }
+    std::cout << "Continuing...\n";
     ptrace(PTRACE_CONT, pid, nullptr, 0);
 }
 
@@ -121,10 +131,10 @@ void Debugger::handleBreakpoint(std::vector<std::string> tokens) {
             auto addr = stol(tokens[1], 0, 16);
             setBreakpoint(addr);
         } else {
-            std::cout << "Invalid address. Example: b 0x402a00" << std::endl;
+            std::cout << "Invalid address. Example: b 0x402a00\n";
         }
     } else {
-        std::cout << "Specify address. Example: b 0x402a00" << std::endl;
+        std::cout << "Specify address. Example: b 0x402a00\n";
     }
 }
 
@@ -134,10 +144,10 @@ void Debugger::handleDeleteBreakpoint(std::vector<std::string> tokens) {
             auto addr = stol(tokens[1], 0, 16);
             unsetBreakpoint(addr);
         } else {
-            std::cout << "Invalid address. Example: d 0x402a00" << std::endl;
+            std::cout << "Invalid address. Example: d 0x402a00\n";
         }
     } else {
-        std::cout << "Specify address. Example: d 0x402a00" << std::endl;
+        std::cout << "Specify address. Example: d 0x402a00\n";
     }
 }
 
@@ -155,9 +165,9 @@ void Debugger::setBreakpoint(const std::uintptr_t address) {
         Breakpoint breakpoint{pid, address};
         breakpoint.enable();
         breakpointsMap[address] = breakpoint;
-        std::cout << "Breakpoint set at 0x" << std::hex << address << std::endl;
+        std::cout << "Breakpoint set at 0x" << std::hex << address << "\n";
     } else {
-        std::cout << "Breakpoint already set at 0x" << std::hex << address << std::endl;
+        std::cout << "Breakpoint already set at 0x" << std::hex << address << "\n";
     }
 }
 
@@ -165,34 +175,32 @@ void Debugger::unsetBreakpoint(const std::uintptr_t address) {
     auto search = breakpointsMap.find(address);
 
     if (search != breakpointsMap.end() && breakpointsMap[address].isEnabled()) {
-            breakpointsMap[address].disable();
-            // Fix RIP if on this breakpoint
-            user_regs_struct regs = getRegisters();
-            if (address == regs.rip - 1) {
-                regs.rip--;
-                ptrace(PTRACE_SETREGS, pid, nullptr, &regs);
-            }
-            std::cout << "Removed breakpoint at 0x" << std::hex << address << std::endl;
+        breakpointsMap[address].disable();
+        // Fix instruction pointer if currently stopped on this breakpoint
+        auto prevIntructionAddr = getRegisters().rip - 1;
+
+        if (address == prevIntructionAddr) {
+            decrementInstructionPointer();
+        }
+        std::cout << "Removed breakpoint at 0x" << std::hex << address << "\n";
     } else {
-        std::cout << "No Breakpoint set at 0x" << std::hex << address << std::endl;
+        std::cout << "No Breakpoint set at 0x" << std::hex << address << "\n";
     }
 }
 
-void Debugger::checkForBreakpoint() {
+void Debugger::decrementInstructionPointer() {
     user_regs_struct regs = getRegisters();
-    auto addr = regs.rip - 1;
-    auto search = breakpointsMap.find(addr);
+    regs.rip--;
+    ptrace(PTRACE_SETREGS, pid, nullptr, &regs);
+}
 
-    if (search != breakpointsMap.end() && breakpointsMap[addr].isEnabled()) {
-        breakpointsMap[addr].disable();
-        // Must move RIP back to before breakpoint was hit
-        regs.rip--;
-        ptrace(PTRACE_SETREGS, pid, nullptr, &regs);
-        // Single step so breakpoint can be re-enabled after executing instruction
-        ptrace(PTRACE_SINGLESTEP, pid, nullptr, nullptr);
-        int status;
-        waitpid(pid, &status, 0);
-        breakpointsMap[addr].enable();
+bool Debugger::isBreakpoint(u_int64_t address) {
+    auto search = breakpointsMap.find(address);
+
+    if (search != breakpointsMap.end() && breakpointsMap[address].isEnabled()) {
+        return true;
+    } else {
+        return false;
     }
 }
 
@@ -214,7 +222,7 @@ void Debugger::displayRegisters() {
               << "RSI: " << uintToHexStr(registers.rsi, 16) << "    R14: " << uintToHexStr(registers.r14, 16) << "\n"
               << "RDI: " << uintToHexStr(registers.rdi, 16) << "    R15: " << uintToHexStr(registers.r15, 16) << "\n"
               << "RIP: " << uintToHexStr(registers.rip, 16) << "\n"
-              << std::endl;
+              ;
 }
 
 std::string Debugger::uintToHexStr(uintptr_t num, unsigned int len) {
