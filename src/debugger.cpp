@@ -24,13 +24,14 @@ void Debugger::setupInferior(const char *path) {
 
 void Debugger::debug() {
     while(1) {
+        onBreakpoint = false;
         int status;
         waitpid(pid, &status, 0);
 
         if (WIFSTOPPED(status)) {
             switch (WSTOPSIG(status)) {
                 case SIGTRAP:
-                    std::cout << "Stopped on SIGTRAP\n";
+                    handleSIGTRAP();
                     break;
                 case SIGILL:
                     std::cout << "Stopped on SIGILL\n";
@@ -51,6 +52,30 @@ void Debugger::debug() {
             exit(0);
         }
     }
+}
+
+siginfo_t Debugger::getSigInfo() {
+    siginfo_t sigInfo;
+    ptrace(PTRACE_GETSIGINFO, pid, nullptr, &sigInfo);
+    return sigInfo;
+}
+
+void Debugger::handleSIGTRAP() {
+    siginfo_t sigInfo = getSigInfo();
+    switch (sigInfo.si_code) {
+    // Breakpoint
+    case TRAP_BRKPT:
+    case SI_KERNEL:
+        onBreakpoint = true;
+        std::cout << "Stopped on breakpoint\n";
+        break;
+    // Single Step
+    case TRAP_TRACE:
+        break;
+    default:
+        std::cout << "Stopped on SIGTRAP\n";
+        break;
+   }
 }
 
 std::string Debugger::getCommand() {
@@ -88,14 +113,17 @@ void Debugger::prompt() {
 
         if (tokens.size() > 0) {
             if (tokens[0] == "c") {
-                handleContinue();
+                continueExecution();
                 break;
             } else if (tokens[0] == "b") {
-                handleBreakpoint(tokens);
+                addBreakpoint(tokens);
             } else if (tokens[0] == "d") {
-                handleDeleteBreakpoint(tokens);
+                deleteBreakpoint(tokens);
             } else if (tokens[0] == "r") {
                 displayRegisters();
+            } else if (tokens[0] == "s") {
+                singleStep();
+                break;
             } else if (tokens[0] == "q") {
                 if (getConfirmation()) {
                     std::cout << "Killing child process...\n";
@@ -109,10 +137,9 @@ void Debugger::prompt() {
     }
 }
 
-void Debugger::handleContinue() {
-    auto instructionPtr = getRegisters().rip - 1;
-
-    if (isBreakpoint(instructionPtr)) {
+void Debugger::continueExecution() {
+    if (onBreakpoint) {
+        auto instructionPtr = getRegisters().rip - 1;
         breakpointsMap[instructionPtr].disable();
         decrementInstructionPointer();
         // Single step so breakpoint can be re-enabled before continuing
@@ -125,7 +152,21 @@ void Debugger::handleContinue() {
     ptrace(PTRACE_CONT, pid, nullptr, 0);
 }
 
-void Debugger::handleBreakpoint(std::vector<std::string> tokens) {
+void Debugger::singleStep() {
+    if (onBreakpoint) {
+        auto instructionPtr = getRegisters().rip - 1;
+        breakpointsMap[instructionPtr].disable();
+        decrementInstructionPointer();
+        ptrace(PTRACE_SINGLESTEP, pid, nullptr, nullptr);
+        breakpointsMap[instructionPtr].enable();
+    } else {
+        ptrace(PTRACE_SINGLESTEP, pid, nullptr, nullptr);
+    }
+
+    std::cout << "Single Stepping..." <<  std::endl;
+}
+
+void Debugger::addBreakpoint(const std::vector<std::string> tokens) {
     if (tokens.size() > 1) {
         if (std::regex_match(tokens[1], std::regex("0[xX][0-9a-fA-F]{1,16}"))) {
             auto addr = stol(tokens[1], 0, 16);
@@ -138,7 +179,7 @@ void Debugger::handleBreakpoint(std::vector<std::string> tokens) {
     }
 }
 
-void Debugger::handleDeleteBreakpoint(std::vector<std::string> tokens) {
+void Debugger::deleteBreakpoint(const std::vector<std::string> tokens) {
     if (tokens.size() > 1) {
         if (std::regex_match(tokens[1], std::regex("0[xX][0-9a-fA-F]{1,16}"))) {
             auto addr = stol(tokens[1], 0, 16);
@@ -152,7 +193,7 @@ void Debugger::handleDeleteBreakpoint(std::vector<std::string> tokens) {
 }
 
 // Split string into tokens using space as delimeter
-std::vector<std::string> Debugger::getTokens(std::string input) {
+std::vector<std::string> Debugger::getTokens(const std::string input) {
     std::istringstream inputStream{input};
     std::vector<std::string> tokens{std::istream_iterator<std::string>{inputStream}, std::istream_iterator<std::string>{}};
     return tokens;
@@ -194,20 +235,9 @@ void Debugger::decrementInstructionPointer() {
     ptrace(PTRACE_SETREGS, pid, nullptr, &regs);
 }
 
-bool Debugger::isBreakpoint(u_int64_t address) {
-    auto search = breakpointsMap.find(address);
-
-    if (search != breakpointsMap.end() && breakpointsMap[address].isEnabled()) {
-        return true;
-    } else {
-        return false;
-    }
-}
-
 user_regs_struct Debugger::getRegisters() {
     user_regs_struct registers;
     ptrace(PTRACE_GETREGS, pid, nullptr, &registers);
-
     return registers;
 }
 
@@ -225,7 +255,7 @@ void Debugger::displayRegisters() {
               ;
 }
 
-std::string Debugger::uintToHexStr(uintptr_t num, unsigned int len) {
+std::string Debugger::uintToHexStr(const uintptr_t num, const unsigned int len) {
     std::stringstream ss;
     ss << std::hex << num;
     auto hexString = ss.str();
@@ -234,7 +264,7 @@ std::string Debugger::uintToHexStr(uintptr_t num, unsigned int len) {
     return hexString;
 }
 
-void Debugger::padString(std::string &str, char c, unsigned int len) {
+void Debugger::padString(std::string &str, const char c, const unsigned int len) {
     if (str.length() < len) {
         str.insert(0, len - str.length(), c);
     }
