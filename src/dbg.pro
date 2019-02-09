@@ -7,8 +7,10 @@ LIBS += -L.local/lib -lreadline
 
 SOURCES += main.cpp \
     debugger.cpp \
-    breakpoint.cpp
+    breakpoint.cpp \
+    core.cpp
 
 HEADERS += \
     debugger.h \
-    breakpoint.h
+    breakpoint.h \
+    core.h
